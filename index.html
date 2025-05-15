@@ -1,64 +1,86 @@
-<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html><html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Adobe Stock Metadata Generator</title>
   <style>
-    body { font-family: Arial; padding: 20px; background: #f9f9f9; }
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
     h1 { font-size: 24px; }
-    #output { white-space: pre-wrap; margin-top: 20px; border: 1px solid #ccc; padding: 10px; background: #fff; }
-    button { padding: 10px 20px; font-size: 16px; }
+    input, button { margin: 10px 0; padding: 8px; }
+    .output { background: #fff; padding: 10px; border-radius: 5px; }
+    textarea { width: 100%; height: 60px; margin-top: 5px; }
   </style>
 </head>
 <body>
   <h1>Adobe Stock Metadata Generator</h1>
   <input type="file" id="fileInput" multiple accept="image/*" />
   <button onclick="generateMetadata()">Generate Metadata</button>
-  <div id="output"></div>
-
-  <script>
-    const API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base";
-    const API_TOKEN = "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";
+  <button onclick="downloadCSV()">Download CSV</button>
+  <div class="output" id="output"></div>  <script>
+    const HF_TOKEN = "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";
+    const MODEL_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large";
+    const outputDiv = document.getElementById("output");
+    let csvRows = ["Filename,Title,Keywords"];
 
     async function generateMetadata() {
-      const output = document.getElementById("output");
       const files = document.getElementById("fileInput").files;
-      output.innerText = "";
+      if (!files.length) return;
+      outputDiv.innerHTML = "";
+      csvRows = ["Filename,Title,Keywords"];
 
       for (const file of files) {
-        output.innerText += `Processing: ${file.name}...\n`;
+        const status = document.createElement("div");
+        status.textContent = `Processing: ${file.name}...`;
+        outputDiv.appendChild(status);
 
         try {
-          const response = await fetch(API_URL, {
+          const base64 = await toBase64(file);
+          const response = await fetch(MODEL_URL, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${API_TOKEN}`
+              Authorization: `Bearer ${HF_TOKEN}`,
+              "Content-Type": "application/json"
             },
-            body: file
+            body: JSON.stringify({ inputs: base64 })
           });
 
+          if (!response.ok) throw new Error(await response.text());
+
           const result = await response.json();
+          const caption = result[0]?.generated_text || "";
+          const keywords = caption.split(/\s+/).slice(0, 50).join(", ");
 
-          if (Array.isArray(result) && result.length > 0 && result[0].generated_text) {
-            const caption = result[0].generated_text;
-            const keywords = caption
-              .replace(/[^\w\s]/g, '')
-              .split(' ')
-              .filter(word => word.length > 3)
-              .slice(0, 50);
+          status.innerHTML = `
+            <strong>${file.name}</strong><br/>
+            <label>Title:</label><br/>
+            <textarea>${caption}</textarea><label>Keywords:</label><br/>
+        <textarea>${keywords}</textarea>
+      `;
 
-            output.innerText += `Title: ${caption}\nKeywords: ${keywords.join(', ')}\n\n`;
-          } else if (result.error) {
-            output.innerText += `Error: ${result.error}\n\n`;
-          } else {
-            output.innerText += `Failed to get metadata for ${file.name}\n\n`;
-          }
-        } catch (err) {
-          output.innerText += `Failed to process ${file.name}: ${err.message}\n\n`;
-        }
-      }
+      csvRows.push(`"${file.name}","${caption.replace(/"/g, '""')}","${keywords.replace(/"/g, '""')}"`);
+    } catch (error) {
+      status.innerHTML = `<strong>${file.name}</strong><br/>Failed: ${error.message}`;
     }
+  }
+}
+
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (err) => reject(err);
+  });
+}
+
+function downloadCSV() {
+  const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "metadata.csv";
+  link.click();
+}
+
   </script>
 </body>
 </html>
