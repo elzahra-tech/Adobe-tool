@@ -3,133 +3,97 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Metadata Generator</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.9.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.10.0/dist/transformers.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; background: #f4f4f4; text-align: center; padding: 20px; }
-    .container { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); display: inline-block; }
-    button { padding: 10px 20px; font-size: 16px; margin: 10px; }
-    input { margin-top: 10px; }
-    table { margin-top: 20px; border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 8px; }
-    th { background-color: #f2f2f2; }
+    body { font-family: sans-serif; padding: 2rem; background: #f5f5f5; }
+    h1 { text-align: center; margin-bottom: 1.5rem; }
+    .container { max-width: 800px; margin: auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    input[type="file"] { margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 2rem; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+    th { background: #eee; }
+    button { padding: 0.5rem 1rem; margin-top: 1rem; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>AI Metadata Generator</h1>
-    <input type="file" id="fileInput" multiple accept="image/*" />
-    <p id="fileCount">عدد الملفات: 0</p>
-    <button id="generateBtn">Generate Metadata</button>
-    <button id="downloadBtn">Download CSV</button>
-    <p id="status"></p>
-    <div id="error-message" style="color:red;"></div>
-    <table id="resultsTable" style="display: none">
+    <h1>Metadata Generator with AI (BLIP)</h1>
+    <input type="file" id="imageUpload" multiple accept="image/png,image/jpeg" />
+    <br/>
+    <button onclick="generateMetadata()">Generate Metadata</button>
+    <button onclick="downloadCSV()">Download CSV</button>
+    <table id="resultsTable">
       <thead>
-        <tr><th>Filename</th><th>Title</th><th>Keywords</th></tr>
+        <tr>
+          <th>Image</th>
+          <th>Title</th>
+          <th>Keywords</th>
+        </tr>
       </thead>
-      <tbody id="resultsBody"></tbody>
+      <tbody></tbody>
     </table>
-  </div><script>
-let processor, blipModel;
+  </div>  <script type="module">
+    import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs';
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers';
 
-async function loadModel() {
-  document.getElementById("status").innerText = "Loading AI model...";
-  const pipeline = window.transformers.pipeline;
-  processor = await window.transformers.BlipProcessor.from_pretrained('Xenova/blip-image-captioning-base');
-  blipModel = await window.transformers.BlipForConditionalGeneration.from_pretrained('Xenova/blip-image-captioning-base');
-  document.getElementById("status").innerText = "Model loaded successfully.";
-}
+    let captioner;
+    const tableBody = document.querySelector("#resultsTable tbody");
+    const results = [];
 
-async function loadImageToTensor(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = async () => {
-        const tensor = tf.browser.fromPixels(img);
-        resolve(tensor);
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
+    async function loadModel() {
+      captioner = await pipeline("image-to-text", "Xenova/blip-image-captioning-base");
+    }
 
-async function generateCaption(imageTensor) {
-  const inputs = await processor(imageTensor);
-  const output = await blipModel.generate(inputs.input_ids);
-  return blipModel.tokenizer.decode(output[0], { skip_special_tokens: true });
-}
-
-async function generateKeywords(caption) {
-  const words = caption.split(/\W+/).filter(w => w.length > 3);
-  const unique = [...new Set(words)];
-  return unique.slice(0, 50);
-}
-
-async function generateMetadata(file) {
-  try {
-    const imageTensor = await loadImageToTensor(file);
-    const caption = await generateCaption(imageTensor);
-    const keywords = await generateKeywords(caption);
-    return {
-      fileName: file.name,
-      title: caption,
-      keywords: keywords.join(", "),
-    };
-  } catch (error) {
-    console.error("Metadata error:", error);
-    document.getElementById("error-message").innerText = "Error processing file: " + file.name;
-    return {
-      fileName: file.name,
-      title: "ERROR",
-      keywords: "",
-    };
-  }
-}
-
-document.getElementById("fileInput").addEventListener("change", () => {
-  const files = document.getElementById("fileInput").files;
-  document.getElementById("fileCount").innerText = "عدد الملفات: " + files.length;
-});
-
-document.getElementById("generateBtn").addEventListener("click", async () => {
-  try {
     await loadModel();
-  } catch (e) {
-    document.getElementById("error-message").innerText = "Model failed to load. Please refresh.";
-    return;
-  }
 
-  const files = document.getElementById("fileInput").files;
-  const results = [];
-  for (const file of files) {
-    const metadata = await generateMetadata(file);
-    results.push(metadata);
-  }
-  const tbody = document.getElementById("resultsBody");
-  tbody.innerHTML = "";
-  for (const r of results) {
-    tbody.innerHTML += `<tr><td>${r.fileName}</td><td>${r.title}</td><td>${r.keywords}</td></tr>`;
-  }
-  document.getElementById("resultsTable").style.display = "table";
-});
+    async function generateMetadata() {
+      const files = document.getElementById("imageUpload").files;
+      tableBody.innerHTML = "";
+      results.length = 0;
 
-document.getElementById("downloadBtn").addEventListener("click", () => {
-  const rows = document.querySelectorAll("#resultsBody tr");
-  let csvContent = "Filename,Title,Keywords\n";
-  rows.forEach(row => {
-    const cols = row.querySelectorAll("td");
-    const rowText = Array.from(cols).map(td => '"' + td.textContent.replace(/"/g, '""') + '"').join(",");
-    csvContent += rowText + "\n";
-  });
-  const blob = new Blob([csvContent], { type: "text/csv" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "metadata.csv";
-  link.click();
-});
-</script></body>
+      for (const file of files) {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+
+        const caption = await captioner(img);
+        const title = caption[0].generated_text;
+        const keywords = await generateKeywords(title);
+
+        results.push({ fileName: file.name, title, keywords: keywords.join(", ") });
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${file.name}</td>
+          <td>${title}</td>
+          <td>${keywords.join(", ")}</td>
+        `;
+        tableBody.appendChild(row);
+      }
+    }
+
+    async function generateKeywords(caption) {
+      const lower = caption.toLowerCase();
+      const words = lower.split(/\s+/).filter(w => w.length > 2);
+      const combos = [];
+      for (let i = 0; i < words.length - 1; i++) {
+        combos.push(words[i] + " " + words[i + 1]);
+      }
+      const all = [...new Set([...words, ...combos])];
+      return all.slice(0, 60);
+    }
+
+    function downloadCSV() {
+      let csv = "File Name,Title,Keywords\n";
+      for (const row of results) {
+        csv += `"${row.fileName}","${row.title}","${row.keywords}"\n`;
+      }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "metadata.csv";
+      a.click();
+    }
+  </script></body>
 </html>
