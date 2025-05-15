@@ -1,90 +1,64 @@
-<!DOCTYPE html><html lang="en">
+<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Adobe Stock Metadata Tool</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Adobe Stock Metadata Generator</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      background: #f7f7f7;
-    }
-    h1 {
-      color: #333;
-    }
-    #output {
-      margin-top: 20px;
-      white-space: pre-wrap;
-      background: #fff;
-      padding: 15px;
-      border: 1px solid #ccc;
-    }
-    input[type="file"] {
-      margin-top: 10px;
-    }
-    button {
-      margin-top: 10px;
-      padding: 10px;
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
+    body { font-family: Arial; padding: 20px; background: #f9f9f9; }
+    h1 { font-size: 24px; }
+    #output { white-space: pre-wrap; margin-top: 20px; border: 1px solid #ccc; padding: 10px; background: #fff; }
+    button { padding: 10px 20px; font-size: 16px; }
   </style>
 </head>
 <body>
   <h1>Adobe Stock Metadata Generator</h1>
   <input type="file" id="fileInput" multiple accept="image/*" />
   <button onclick="generateMetadata()">Generate Metadata</button>
-  <div id="output"></div>  <script>
+  <div id="output"></div>
+
+  <script>
+    const API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base";
     const API_TOKEN = "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";
-    const MODEL_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base";
 
     async function generateMetadata() {
+      const output = document.getElementById("output");
       const files = document.getElementById("fileInput").files;
-      const outputDiv = document.getElementById("output");
-      outputDiv.innerHTML = "";
-
-      if (!files.length) {
-        outputDiv.innerHTML = "Please upload at least one image.";
-        return;
-      }
+      output.innerText = "";
 
       for (const file of files) {
-        outputDiv.innerHTML += `Processing: ${file.name}...\n`;
+        output.innerText += `Processing: ${file.name}...\n`;
 
-        const base64Image = await toBase64(file);
-        const binary = await file.arrayBuffer();
+        try {
+          const base64 = await toBase64(file);
+          const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${API_TOKEN}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              inputs: base64
+            })
+          });
 
-        const response = await fetch(MODEL_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${API_TOKEN}`,
-            "Content-Type": "application/octet-stream",
-          },
-          body: binary,
-        });
+          const result = await response.json();
 
-        if (!response.ok) {
-          outputDiv.innerHTML += `Failed to process ${file.name}: ${response.statusText}\n`;
-          continue;
+          if (Array.isArray(result) && result.length > 0 && result[0].generated_text) {
+            const caption = result[0].generated_text;
+            const keywords = caption
+              .replace(/[^\w\s]/g, '')
+              .split(' ')
+              .filter(word => word.length > 3)
+              .slice(0, 50);
+
+            output.innerText += `Title: ${caption}\nKeywords: ${keywords.join(', ')}\n\n`;
+          } else {
+            output.innerText += `Failed to get metadata for ${file.name}\n\n`;
+          }
+        } catch (err) {
+          output.innerText += `Failed to process ${file.name}: ${err.message}\n\n`;
         }
-
-        const data = await response.json();
-        const caption = data[0]?.generated_text || "No caption generated.";
-
-        // Create keywords (simple split for demonstration, improve as needed)
-        const keywords = caption
-          .replace(/[^a-zA-Z0-9 ]/g, "")
-          .split(" ")
-          .filter((word) => word.length > 3)
-          .slice(0, 50);
-
-        outputDiv.innerHTML += `\nFile: ${file.name}\nTitle: ${caption}\nKeywords: ${keywords.join(", ")}\n\n`;
       }
     }
 
@@ -93,8 +67,9 @@
         const reader = new FileReader();
         reader.readAsDataURL(file);
         reader.onload = () => resolve(reader.result);
-        reader.onerror = (error) => reject(error);
+        reader.onerror = error => reject(error);
       });
     }
-  </script></body>
+  </script>
+</body>
 </html>
