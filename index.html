@@ -2,73 +2,99 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI-Powered Metadata Tool</title>
+  <title>Adobe Stock Metadata Tool</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    #preview img { max-width: 150px; margin: 10px; }
-    .result { margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f7f7f7;
+    }
+    h1 {
+      color: #333;
+    }
+    #output {
+      margin-top: 20px;
+      white-space: pre-wrap;
+      background: #fff;
+      padding: 15px;
+      border: 1px solid #ccc;
+    }
+    input[type="file"] {
+      margin-top: 10px;
+    }
+    button {
+      margin-top: 10px;
+      padding: 10px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
   </style>
 </head>
 <body>
-  <h1>Upload Images for Metadata Generation</h1>
-  <input type="file" id="imageUpload" multiple accept="image/png,image/jpeg" />
-  <button id="generateBtn">Generate Metadata</button>
-  <div id="preview"></div>
-  <div id="results"></div>  <script type="module">
-    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.3.0';
+  <h1>Adobe Stock Metadata Generator</h1>
+  <input type="file" id="fileInput" multiple accept="image/*" />
+  <button onclick="generateMetadata()">Generate Metadata</button>
+  <div id="output"></div>  <script>
+    const API_TOKEN = "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";
+    const MODEL_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base";
 
-    let captionGenerator;
-    let images = [];
+    async function generateMetadata() {
+      const files = document.getElementById("fileInput").files;
+      const outputDiv = document.getElementById("output");
+      outputDiv.innerHTML = "";
 
-    document.getElementById('imageUpload').addEventListener('change', async (event) => {
-      images = Array.from(event.target.files);
-      const preview = document.getElementById('preview');
-      preview.innerHTML = '';
-      images.forEach((file) => {
-        const img = document.createElement('img');
-        img.src = URL.createObjectURL(file);
-        preview.appendChild(img);
-      });
-    });
-
-    document.getElementById('generateBtn').addEventListener('click', async () => {
-      if (!images.length) {
-        alert('Please upload at least one image.');
+      if (!files.length) {
+        outputDiv.innerHTML = "Please upload at least one image.";
         return;
       }
 
-      const resultsContainer = document.getElementById('results');
-      resultsContainer.innerHTML = 'Loading model...';
+      for (const file of files) {
+        outputDiv.innerHTML += `Processing: ${file.name}...\n`;
 
-      try {
-        if (!captionGenerator) {
-          captionGenerator = await pipeline('image-to-text', 'Xenova/blip-image-captioning-base');
+        const base64Image = await toBase64(file);
+        const binary = await file.arrayBuffer();
+
+        const response = await fetch(MODEL_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${API_TOKEN}`,
+            "Content-Type": "application/octet-stream",
+          },
+          body: binary,
+        });
+
+        if (!response.ok) {
+          outputDiv.innerHTML += `Failed to process ${file.name}: ${response.statusText}\n`;
+          continue;
         }
-      } catch (error) {
-        resultsContainer.innerHTML = 'Failed to load model. Please refresh or try later.';
-        return;
+
+        const data = await response.json();
+        const caption = data[0]?.generated_text || "No caption generated.";
+
+        // Create keywords (simple split for demonstration, improve as needed)
+        const keywords = caption
+          .replace(/[^a-zA-Z0-9 ]/g, "")
+          .split(" ")
+          .filter((word) => word.length > 3)
+          .slice(0, 50);
+
+        outputDiv.innerHTML += `\nFile: ${file.name}\nTitle: ${caption}\nKeywords: ${keywords.join(", ")}\n\n`;
       }
+    }
 
-      resultsContainer.innerHTML = '';
-
-      for (const file of images) {
-        const arrayBuffer = await file.arrayBuffer();
-        const caption = await captionGenerator(arrayBuffer);
-
-        const resultDiv = document.createElement('div');
-        resultDiv.className = 'result';
-        resultDiv.innerHTML = `<strong>File:</strong> ${file.name}<br>
-                               <strong>Title:</strong> ${caption[0].generated_text}<br>
-                               <strong>Keywords:</strong> ${generateKeywords(caption[0].generated_text)}`;
-        resultsContainer.appendChild(resultDiv);
-      }
-    });
-
-    function generateKeywords(text) {
-      const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
-      const unique = [...new Set(words)];
-      const keywords = unique.slice(0, 50);
-      return keywords.join(', ');
+    function toBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = (error) => reject(error);
+      });
     }
   </script></body>
 </html>
